@@ -1,3 +1,4 @@
+// ---------- Imports ----------
 const express = require("express");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
@@ -6,18 +7,18 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 dotenv.config();
 
-// Import Models
 const User = require("./models/User");
 const SearchHistory = require("./models/SearchHistory");
 
+// ---------- App Setup ----------
 const app = express();
 
-// ✅ CORS Setup
+// ✅ CORS (allows localhost + production frontend)
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",
-      "https://your-frontend-domain.vercel.app"
+      "http://localhost:5173", // local dev
+      "https://your-frontend-domain.vercel.app" // deployed frontend
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -25,33 +26,44 @@ app.use(
 );
 app.use(express.json());
 
-// ✅ MongoDB Connection
+// ---------- MongoDB Connection ----------
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  })
   .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+  .catch((err) => console.error("❌ MongoDB connection error:", err.message));
 
-// ✅ Auth Middleware
+// ---------- Auth Middleware ----------
 const authenticate = (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "Unauthorized" });
 
-  jwt.verify(token, "secret", (err, decoded) => {
-    if (err) return res.status(401).json({ message: "Unauthorized" });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret");
     req.user = decoded;
     next();
-  });
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
 };
 
-// ✅ Base route (for testing)
+// ---------- Health Check ----------
 app.get("/", (req, res) => {
-  res.json({ message: "🚀 Feedback Analysis API is live!" });
+  res.status(200).json({ message: "🚀 Feedback Analysis API is live on Vercel!" });
 });
 
-// ✅ Register Route
+// ---------- Auth Routes ----------
 app.post("/api/register", async (req, res) => {
   const { email, password } = req.body;
+
   try {
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser)
       return res.status(400).json({ message: "User already exists" });
@@ -67,9 +79,9 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// ✅ Login Route
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
+
   try {
     const user = await User.findOne({ email });
     if (!user)
@@ -81,18 +93,22 @@ app.post("/api/login", async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      "secret",
+      process.env.JWT_SECRET || "default_secret",
       { expiresIn: "1h" }
     );
 
-    res.status(200).json({ message: "Login successful", token, email: user.email });
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      email: user.email
+    });
   } catch (err) {
     console.error("Login Error:", err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
 
-// ✅ Save Search History
+// ---------- Search History ----------
 app.post("/api/search-history", authenticate, async (req, res) => {
   const { searchUrl, searchResponse } = req.body;
   const userEmail = req.user.email;
@@ -107,9 +123,9 @@ app.post("/api/search-history", authenticate, async (req, res) => {
   }
 });
 
-// ✅ Fetch Search History
 app.get("/api/search-history", authenticate, async (req, res) => {
   const userEmail = req.user.email;
+
   try {
     const history = await SearchHistory.find({ userEmail }).sort({ timestamp: -1 });
     res.json(history);
@@ -119,10 +135,10 @@ app.get("/api/search-history", authenticate, async (req, res) => {
   }
 });
 
-// ✅ User Profile
+// ---------- User Profile ----------
 app.get("/api/user-profile", authenticate, (req, res) => {
   res.json({ email: req.user.email });
 });
 
-// ✅ Export app for Vercel (❗ DO NOT use app.listen)
+// ---------- Export App for Vercel ----------
 module.exports = app;

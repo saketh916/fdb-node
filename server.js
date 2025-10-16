@@ -8,40 +8,43 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-// ---------- Models ----------
 const User = require("./models/User");
 const SearchHistory = require("./models/SearchHistory");
 
-// ---------- App Setup ----------
 const app = express();
 
-// ✅ CORS Setup (Fixed)
+// ---------- CORS: Strictly Fixed ----------
 const allowedOrigins = [
-  "http://localhost:5173", // local dev
-  "https://main.dd9f3o4tcnlx2.amplifyapp.com" // 🚫 removed trailing slash
+  "http://localhost:5173",
+  "https://main.dd9f3o4tcnlx2.amplifyapp.com",
 ];
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+// 🔥 universal middleware before anything else
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
-// ✅ Handle preflight requests globally
-app.options("*", cors());
+  // handle preflight requests immediately
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 app.use(express.json());
 
-// ---------- MongoDB Connection ----------
+// ---------- MongoDB ----------
 mongoose
   .connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
@@ -67,47 +70,44 @@ const authenticate = (req, res, next) => {
 
 // ---------- Health Check ----------
 app.get("/", (req, res) => {
-  res.status(200).json({ message: "🚀 Feedback Analysis API is live on Vercel!" });
+  res.status(200).json({ message: "🚀 Feedback Analysis API is live!" });
 });
 
 // ---------- Auth Routes ----------
 app.post("/api/register", async (req, res) => {
-  const { email, password } = req.body;
-
   try {
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email and password are required" });
-    }
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ message: "Email and password required" });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
+    const existing = await User.findOne({ email });
+    if (existing)
       return res.status(400).json({ message: "User already exists" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ email, password: hashedPassword });
+    const hashed = await bcrypt.hash(password, 10);
+    const newUser = new User({ email, password: hashed });
     await newUser.save();
 
     const token = jwt.sign(
       { id: newUser._id, email: newUser.email },
-      process.env.JWT_SECRET || "default_secret",
+      process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
     res.status(201).json({
-      message: "Registration successful! Logging you in.",
+      message: "Registration successful!",
       token,
       email: newUser.email,
     });
   } catch (err) {
     console.error("Register Error:", err);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: err.message || "Internal server error" });
   }
 });
 
 app.post("/api/login", async (req, res) => {
-  const { email, password } = req.body;
-
   try {
+    const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user)
       return res.status(400).json({ message: "Invalid email or password" });
@@ -118,30 +118,28 @@ app.post("/api/login", async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      process.env.JWT_SECRET || "default_secret",
+      process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    res.status(200).json({
-      message: "Login successful",
-      token,
-      email: user.email,
-    });
+    res.json({ message: "Login successful", token, email: user.email });
   } catch (err) {
     console.error("Login Error:", err);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: err.message || "Internal server error" });
   }
 });
 
 // ---------- Search History ----------
 app.post("/api/search-history", authenticate, async (req, res) => {
-  const { searchUrl, searchResponse } = req.body;
-  const userEmail = req.user.email;
-
   try {
-    const record = new SearchHistory({ userEmail, searchUrl, searchResponse });
+    const { searchUrl, searchResponse } = req.body;
+    const record = new SearchHistory({
+      userEmail: req.user.email,
+      searchUrl,
+      searchResponse,
+    });
     await record.save();
-    res.status(201).json({ message: "Search history saved successfully" });
+    res.status(201).json({ message: "Saved successfully" });
   } catch (err) {
     console.error("Save Search Error:", err);
     res.status(500).json({ message: "Error saving search history" });
@@ -149,10 +147,10 @@ app.post("/api/search-history", authenticate, async (req, res) => {
 });
 
 app.get("/api/search-history", authenticate, async (req, res) => {
-  const userEmail = req.user.email;
-
   try {
-    const history = await SearchHistory.find({ userEmail }).sort({ timestamp: -1 });
+    const history = await SearchHistory.find({ userEmail: req.user.email }).sort({
+      timestamp: -1,
+    });
     res.json(history);
   } catch (err) {
     console.error("Fetch Search Error:", err);
@@ -165,5 +163,5 @@ app.get("/api/user-profile", authenticate, (req, res) => {
   res.json({ email: req.user.email });
 });
 
-// ---------- Export App for Vercel ----------
+// ---------- Export App ----------
 module.exports = app;

@@ -19,7 +19,9 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173", // local dev
-      "https://your-frontend-domain.vercel.app" // deployed frontend
+      "https://your-frontend-domain.vercel.app", // old Vercel frontend placeholder
+      // 🔑 NEW: Add the AWS Amplify domain to the whitelist
+      "https://main.dd9f3o4tcnlx2.amplifyapp.com" 
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -76,15 +78,15 @@ app.post("/api/register", async (req, res) => {
     const newUser = new User({ email, password: hashedPassword });
     await newUser.save();
 
-    // 🔑 NEW: Generate JWT Token for immediate login
+    // Generate JWT Token for immediate login
     const token = jwt.sign(
       { id: newUser._id, email: newUser.email },
       process.env.JWT_SECRET || "default_secret",
       { expiresIn: "1h" }
     );
 
-    // 🔑 NEW: Return the token and user email
-    res.status(201).json({ 
+    // Return the token and user email
+    res.status(201).json({ 
       message: "Registration successful! Logging you in.",
       token,
       email: newUser.email

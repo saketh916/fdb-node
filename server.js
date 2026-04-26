@@ -15,7 +15,7 @@ const app = express();
 // ---------- CORS: Strictly Fixed ----------
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://main.d2ivpdxh40r80s.amplifyapp.com/",
+  "https://main.d2ivpdxh40r80s.amplifyapp.com",
 ];
 
 // 🔥 universal middleware before anything else
